@@ -2,6 +2,11 @@
 import { Snippet } from "@nextui-org/snippet";
 import { Code } from "@nextui-org/code";
 import { Icon } from "@iconify/react";
+import { useState } from "react";
+import { splitChaptersFromText, Chapter } from "@/utils/splitChapters";
+import { useRef } from "react";
+
+
 import {
   Button,
   Card,
@@ -13,16 +18,111 @@ import {
   Select,
   SelectItem,
 } from "@nextui-org/react";
-import { cn } from "@nextui-org/theme";
+import { cn } from "@nextui-org/theme"; 
 import React from "react";
 
 import { title } from "@/components/primitives";
 
 export default function Home() {
+  const [chapters, setChapters] = useState<Chapter[]>([]);
+const [selectedChapterIdx, setSelectedChapterIdx] = useState(0);
+
+function handleFileUpload(event: React.ChangeEvent<HTMLInputElement>) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const text = e.target?.result as string;
+    const parsed = splitChaptersFromText(text);
+    setChapters(parsed);
+    setSelectedChapterIdx(0);
+  };
+  reader.readAsText(file);
+}
+const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+function handleInsertSplitMarker() {
+  if (!textareaRef.current) return;
+
+  const textarea = textareaRef.current;
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const original = chapters[selectedChapterIdx]?.content ?? "";
+
+  const updated =
+    original.substring(0, start) +
+    "\n====SPLIT CHAPTER====\n" +
+    original.substring(end);
+
+  const updatedChapters = [...chapters];
+  updatedChapters[selectedChapterIdx] = {
+    ...updatedChapters[selectedChapterIdx],
+    content: updated,
+  };
+  setChapters(updatedChapters);
+}
+
+function handleSplitChapter() {
+  const current = chapters[selectedChapterIdx];
+  if (!current) return;
+
+  const parts = current.content
+    .split("====SPLIT CHAPTER====")
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  if (parts.length <= 1) return;
+
+  const newChapters = [
+    ...chapters.slice(0, selectedChapterIdx),
+    ...parts.map((p, i) => ({
+      title: `${current.title} (${i + 1})`,
+      content: p,
+    })),
+    ...chapters.slice(selectedChapterIdx + 1),
+  ];
+
+  setChapters(newChapters);
+  setSelectedChapterIdx(selectedChapterIdx); // stay on the new first split
+}
+
+function handleMergeWithNext() {
+  if (selectedChapterIdx < 0 || selectedChapterIdx >= chapters.length - 1) return;
+
+  const current = chapters[selectedChapterIdx];
+  const next = chapters[selectedChapterIdx + 1];
+
+  const mergedChapter: Chapter = {
+    title: current.title, // keep current title
+    content: current.content + "\n\n" + next.content,
+  };
+
+  const updatedChapters = [
+    ...chapters.slice(0, selectedChapterIdx),
+    mergedChapter,
+    ...chapters.slice(selectedChapterIdx + 2),
+  ];
+
+  setChapters(updatedChapters);
+}
+
+
   return (
     <section className="flex flex-col items-center justify-center gap-4 py-8 md:py-10">
       <div className="inline-block max-w-xl text-center justify-center">
-        <span className={title()}>Place your changes here</span>
+        <span className={title()}>Upload a .txt file to begin</span>
+<div className="mt-2">
+  <input
+    type="file"
+    accept=".txt"
+    onChange={handleFileUpload}
+    className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 
+      file:rounded-full file:border-0 file:text-sm file:font-semibold 
+      file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+  />
+</div>
+
       </div>
       <div className="mt-8 gap-16">
         <Snippet hideCopyButton hideSymbol className="gap-4" variant="bordered">
@@ -62,91 +162,45 @@ export default function Home() {
               />
               Chapters
             </header>
-            <ScrollShadow
-              className="max-h-[calc(500px)] -mr-4"
-              id="menu-scroll"
+<ScrollShadow
+  className="max-h-[calc(500px)] -mr-4"
+  id="menu-scroll"
+>
+  <div className="flex flex-col gap-4 py-3 pr-4">
+    {chapters.map((chapter, idx) => (
+      <Card
+        key={`chapter-${idx}`}
+        isPressable
+        onClick={() => setSelectedChapterIdx(idx)}
+        className={`max-w-[384px] border-1 border-divider/15 ${
+          idx === selectedChapterIdx ? "bg-themeBlue/20" : ""
+        }`}
+        shadow="none"
+      >
+        <CardHeader className="flex items-center justify-between">
+          <div className="flex gap-1.5">
+            <Chip
+              className="mr-1 text-themeBlue bg-themeBlue/20"
+              radius="sm"
+              size="sm"
+              variant="flat"
             >
-              <div className="flex flex-col gap-4 py-3 pr-4">
-                <Card
-                  key="card-1"
-                  isPressable
-                  className={`max-w-[384px] border-1 border-divider/15 bg-themeBlue/20`}
-                  shadow="none"
-                >
-                  <CardHeader className="flex items-center justify-between">
-                    <div className="flex gap-1.5">
-                      <Chip
-                        className="mr-1 text-themeBlue bg-themeBlue/20"
-                        radius="sm"
-                        size="sm"
-                        variant="flat"
-                      >
-                        Editing
-                      </Chip>
-                      <p className="text-left mr-1">
-                        Chapter 1 - Chapter 1 title
-                      </p>
-                    </div>
-                  </CardHeader>
+              {idx === selectedChapterIdx ? "Editing" : `Chapter ${idx + 1}`}
+            </Chip>
+            <p className="text-left mr-1">{chapter.title}</p>
+          </div>
+        </CardHeader>
+        <Divider />
+        <CardBody>
+          <p className="line-clamp-2">
+            {chapter.content.substring(0, 100)}...
+          </p>
+        </CardBody>
+      </Card>
+    ))}
+  </div>
+</ScrollShadow>
 
-                  <Divider />
-                  <CardBody>
-                    <p className="line-clamp-2">
-                      Lorem ipsum dolor sit amet, consectetur adipiscing elit.
-                      Sed do eiusmod tempor incididunt ut labore et dolore magna
-                      aliqua. Ut enim ad minim veniam, quis nostrud exercitation
-                      ullamco laboris nisi ut aliquip
-                    </p>
-                  </CardBody>
-                </Card>
-                <Card
-                  key="card-2"
-                  isPressable
-                  className={`max-w-[384px] border-1 border-divider/15`}
-                  shadow="none"
-                >
-                  <CardHeader className="flex items-center justify-between">
-                    <div className="flex gap-1.5">
-                      <p className="text-left mr-1">
-                        Chapter 2 - Chapter 2 title
-                      </p>
-                    </div>
-                  </CardHeader>
-                  <Divider />
-                  <CardBody>
-                    <p className="line-clamp-2">
-                      Lorem ipsum dolor sit amet, consectetur adipiscing elit.
-                      Sed do eiusmod tempor incididunt ut labore et dolore magna
-                      aliqua. Ut enim ad minim veniam, quis nostrud exercitation
-                      ullamco laboris nisi ut aliquip
-                    </p>
-                  </CardBody>
-                </Card>
-                <Card
-                  key="card-3"
-                  isPressable
-                  className={`max-w-[384px] border-1 border-divider/15`}
-                  shadow="none"
-                >
-                  <CardHeader className="flex items-center justify-between">
-                    <div className="flex gap-1.5">
-                      <p className="text-left mr-1">
-                        Chapter 3 - Chapter 3 title
-                      </p>
-                    </div>
-                  </CardHeader>
-                  <Divider />
-                  <CardBody>
-                    <p className="line-clamp-2">
-                      Lorem ipsum dolor sit amet, consectetur adipiscing elit.
-                      Sed do eiusmod tempor incididunt ut labore et dolore magna
-                      aliqua. Ut enim ad minim veniam, quis nostrud exercitation
-                      ullamco laboris nisi ut aliquip
-                    </p>
-                  </CardBody>
-                </Card>
-              </div>
-            </ScrollShadow>
           </div>
 
           <div className="w-full flex-1 flex-col min-w-[600px] pl-4">
@@ -161,7 +215,38 @@ export default function Home() {
                       width={24}
                     />
                   </Button>
-                  <h4 className="text-md">Chapter 1 - Chapter 1 title</h4>
+                  <h4 className="text-md">
+  {chapters[selectedChapterIdx]?.title ?? "No Chapter Selected"}
+</h4>
+
+                  <div className="flex gap-3 pb-4">
+  <Button
+    size="sm"
+    variant="ghost"
+    onClick={handleInsertSplitMarker}
+    startContent={<Icon icon="ph:scissors-duotone" />}
+  >
+    Insert Chapter Split
+  </Button>
+  <Button
+    size="sm"
+    variant="flat"
+    onClick={handleSplitChapter}
+    startContent={<Icon icon="material-symbols:split" />}
+  >
+    Split
+  </Button>
+  <Button
+  size="sm"
+  variant="bordered"
+  onClick={handleMergeWithNext}
+  startContent={<Icon icon="mdi:merge" />}
+>
+  Combine with Next Chapter
+</Button>
+
+</div>
+
                 </div>
               </header>
               <div className="w-full flex-1 flex-col min-w-[400px]">
@@ -205,9 +290,21 @@ export default function Home() {
                         <ScrollShadow className="editScrollShow absolute left-2 right-2 bottom-10 top-12 text-base p-3 resize-none rounded-md border-solid border-inherit bg-slate-50 dark:bg-gray-800">
                           <div className="flex w-full h-full bg-slate-50 dark:bg-gray-200 rounded-lg p-2">
                             {/* Adjusted to use flex display for layout */}
-                            <textarea
-                              className="flex-1 p-3 resize-none rounded-md border border-transparent bg-slate-50 dark:bg-gray-200 text-gray-900" // Use flex-1 to allow the textarea to fill available space
-                            />
+<textarea
+  ref={textareaRef}
+  className="flex-1 p-3 resize-none rounded-md border border-gray-300 bg-white dark:bg-gray-200 text-gray-900"
+  value={chapters[selectedChapterIdx]?.content ?? ""}
+  onChange={(e) => {
+    const updatedChapters = [...chapters];
+    updatedChapters[selectedChapterIdx] = {
+      ...updatedChapters[selectedChapterIdx],
+      content: e.target.value,
+    };
+    setChapters(updatedChapters);
+  }}
+/>
+
+
                             <div className="bg-gray-100 p-1 rounded-md self-end ml-2">
                               {/* Added margin-left to separate from textarea, align-self to position at the bottom */}
                             </div>
